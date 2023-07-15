@@ -6,6 +6,14 @@ edition = "2021"
 license = "MIT OR Apache-2.0"
 
 [dependencies]
-hal = { package = "esp32-hal", version = "0.13.0" }
-esp-backtrace = { version = "0.7.0", features = ["esp32", "panic-handler", "exception-handler", "print-uart"] }
-esp-println       = { version = "0.5.0", features = ["esp32"] }
+hal = { package = "esp32-hal", version = "0.13.0", features = ["eh1"] }
+esp-backtrace = { version = "0.7.0", features = [
+    "esp32",
+    "panic-handler",
+    "exception-handler",
+    "print-uart",
+] }
+esp-println = { version = "0.5.0", features = ["esp32"] }
+# dht-embedded = { path = "../../../git/dht-embedded-rs" }
+dht-hal-drv = "0.2.2"
+tm1637 = "0.1.0"
