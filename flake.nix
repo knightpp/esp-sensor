@@ -29,15 +29,12 @@
           buildInputs = with pkgs; [
             esp-idf-esp32
             rustup
-            pkg-config
-            openssl
           ];
           shellHook = ''
             set -a
             source .env
             set +a
           '';
-          OPENSSL_DIR = "";
         };
       });
     };
