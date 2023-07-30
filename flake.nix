@@ -31,9 +31,8 @@
             rustup
           ];
           shellHook = ''
-            set -a
-            source .env
-            set +a
+            . .env
+            . ~/export-esp.sh
           '';
         };
       });
