@@ -24,7 +24,26 @@ esp-backtrace = { version = "0.7.0", features = [
     "exception-handler",
     "print-uart",
 ] }
-esp-println = { version = "0.5.0", features = ["esp32"] }
+
+esp-wifi = { git = "https://github.com/esp-rs/esp-wifi", branch = "main", package = "esp-wifi", features = [
+    "esp32",
+    "wifi",
+    "async",
+    "embedded-svc",
+    "embassy-net",
+] }
+embedded-svc = { version = "0.25.0", default-features = false, features = [] }
+embassy-net = { version = "0.1.0", features = [
+    "nightly",
+    "tcp",
+    "udp",
+    "dhcpv4",
+    "medium-ethernet",
+] }
+
+esp-println = { version = "0.5.0", features = ["esp32", "log"] }
 # dht-embedded = { path = "../../../git/dht-embedded-rs" }
 dht-hal-drv = "0.2.2"
 tm1637 = { git = "https://github.com/knightpp/tm1637-rs" }
+log = "=0.4.18"
+toml-cfg = "0.1.3"
