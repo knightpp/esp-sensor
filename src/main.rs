@@ -5,7 +5,7 @@
 
 mod wifi;
 
-use embassy_executor::{Executor, _export::StaticCell};
+use embassy_executor::Executor;
 use embassy_time::{Duration, Timer};
 use esp_backtrace as _;
 use esp_println::println;
