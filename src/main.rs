@@ -3,6 +3,8 @@
 #![feature(type_alias_impl_trait)]
 #![forbid(unsafe_code)]
 
+mod wifi;
+
 use embassy_executor::{Executor, _export::StaticCell};
 use embassy_time::{Duration, Timer};
 use esp_backtrace as _;
@@ -17,8 +19,30 @@ use hal::{
     Rtc, IO,
 };
 
+macro_rules! singleton {
+    ($val:expr) => {{
+        use embassy_executor::_export::StaticCell;
+
+        type T = impl Sized;
+        static STATIC_CELL: StaticCell<T> = StaticCell::new();
+        let (x,) = STATIC_CELL.init(($val,));
+        x
+    }};
+}
+pub(crate) use singleton;
+
+#[toml_cfg::toml_config]
+pub struct Config {
+    #[default("<CHANGEME>")]
+    ssid: &'static str,
+    #[default("<CHANGEME>")]
+    password: &'static str,
+}
+
 #[entry]
 fn main() -> ! {
+    esp_println::logger::init_logger(log::LevelFilter::Info);
+
     let peripherals = Peripherals::take();
     let mut system = peripherals.DPORT.split();
     let clocks = ClockControl::boot_defaults(system.clock_control).freeze();
@@ -42,22 +66,22 @@ fn main() -> ! {
     wdt1.disable();
 
     embassy::init(&clocks, timer_group0.timer0);
+    let (stack, controller) = wifi::init(
+        timer_group1.timer0,
+        peripherals.RNG,
+        peripherals.RADIO,
+        system.radio_clock_control,
+        &clocks,
+    );
 
     let delay = hal::Delay::new(&clocks);
     let io = IO::new(peripherals.GPIO, peripherals.IO_MUX);
     let dht22_pin = io.pins.gpio15.into_open_drain_output();
 
     let tm = {
-        static CLK: StaticCell<GpioPin<Output<OpenDrain>, 12>> = StaticCell::new();
-        static DIO: StaticCell<GpioPin<Output<OpenDrain>, 13>> = StaticCell::new();
-        static DELAY: StaticCell<hal::Delay> = StaticCell::new();
-
-        let clk: GpioPin<Output<OpenDrain>, 12> = io.pins.gpio12.into_open_drain_output();
-        let dio: GpioPin<Output<OpenDrain>, 13> = io.pins.gpio13.into_open_drain_output();
-
-        let clk = CLK.init(clk);
-        let dio = DIO.init(dio);
-        let delay = DELAY.init(delay.clone());
+        let clk = singleton!(io.pins.gpio12.into_open_drain_output());
+        let dio = singleton!(io.pins.gpio13.into_open_drain_output());
+        let delay = singleton!(delay);
 
         let mut tm: tm1637::TM1637<
             'static,
@@ -71,10 +95,11 @@ fn main() -> ! {
         tm
     };
 
-    static EXECUTOR: StaticCell<Executor> = StaticCell::new();
-    let executor = EXECUTOR.init(Executor::new());
+    let executor: &'static mut Executor = singleton!(Executor::new());
     executor.run(|spawner| {
         spawner.spawn(sensor_reader(dht22_pin, tm)).unwrap();
+        spawner.spawn(wifi::connection(controller)).ok();
+        spawner.spawn(wifi::net_task(stack)).ok();
     });
 }
 
