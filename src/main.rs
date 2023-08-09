@@ -5,7 +5,9 @@
 
 mod wifi;
 
+use dht_hal_drv::DhtValue;
 use embassy_executor::Executor;
+use embassy_sync::pubsub::WaitResult;
 use embassy_time::{Duration, Timer};
 use esp_backtrace as _;
 use esp_println::println;
@@ -31,6 +33,30 @@ macro_rules! singleton {
 }
 pub(crate) use singleton;
 
+type PubSubChannel = embassy_sync::pubsub::PubSubChannel<
+    embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex,
+    SensorReadings,
+    1,
+    4,
+    4,
+>;
+type Publisher<'p> = embassy_sync::pubsub::Publisher<
+    'p,
+    embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex,
+    SensorReadings,
+    1,
+    4,
+    4,
+>;
+type Subscriber<'s> = embassy_sync::pubsub::Subscriber<
+    's,
+    embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex,
+    SensorReadings,
+    1,
+    4,
+    4,
+>;
+
 #[toml_cfg::toml_config]
 pub struct Config {
     #[default("<CHANGEME>")]
@@ -45,7 +71,8 @@ fn main() -> ! {
 
     let peripherals = Peripherals::take();
     let mut system = peripherals.DPORT.split();
-    let clocks = ClockControl::boot_defaults(system.clock_control).freeze();
+    let clocks =
+        ClockControl::configure(system.clock_control, hal::clock::CpuClock::Clock240MHz).freeze();
 
     // Disable the RTC and TIMG watchdog timers
     let mut rtc = Rtc::new(peripherals.RTC_CNTL);
@@ -74,14 +101,13 @@ fn main() -> ! {
         &clocks,
     );
 
-    let delay = hal::Delay::new(&clocks);
     let io = IO::new(peripherals.GPIO, peripherals.IO_MUX);
     let dht22_pin = io.pins.gpio15.into_open_drain_output();
 
     let tm = {
         let clk = singleton!(io.pins.gpio12.into_open_drain_output());
         let dio = singleton!(io.pins.gpio13.into_open_drain_output());
-        let delay = singleton!(delay);
+        let delay = singleton!(hal::Delay::new(&clocks));
 
         let mut tm: tm1637::TM1637<
             'static,
@@ -95,23 +121,61 @@ fn main() -> ! {
         tm
     };
 
+    let ps: &'static PubSubChannel = &*singleton!(PubSubChannel::new());
+
     let executor: &'static mut Executor = singleton!(Executor::new());
     executor.run(|spawner| {
-        spawner.spawn(sensor_reader(dht22_pin, tm)).unwrap();
-        spawner.spawn(wifi::connection(controller)).ok();
-        spawner.spawn(wifi::net_task(stack)).ok();
+        // spawner.spawn(wifi::connection(controller)).unwrap();
+        // spawner.spawn(wifi::net_task(stack)).unwrap();
+
+        spawner
+            .spawn(sensor_reader(dht22_pin, ps.publisher().unwrap()))
+            .unwrap();
+        spawner
+            .spawn(display_readings(tm, ps.subscriber().unwrap()))
+            .unwrap();
     });
 }
 
 #[embassy_executor::task]
-async fn sensor_reader(
-    mut dht22_pin: GpioPin<Output<OpenDrain>, 15>,
+async fn display_readings(
     mut tm: tm1637::TM1637<
         'static,
         GpioPin<Output<OpenDrain>, 12>,
         GpioPin<Output<OpenDrain>, 13>,
         hal::Delay,
     >,
+    mut subscriber: Subscriber<'static>,
+) {
+    loop {
+        let SensorReadings {
+            humidity: hum,
+            temperature: temp,
+        } = match subscriber.next_message().await {
+            WaitResult::Lagged(num) => {
+                log::warn!("Lagged {} messages", num);
+                continue;
+            }
+            WaitResult::Message(readings) => readings,
+        };
+
+        println!("Temperature: {:2.1}°C", temp);
+        println!("Humidity:    {:2.1}%", hum);
+
+        let digits = [
+            ((temp / 10.) as u32 % 10) as u8,
+            (temp as u32 % 10) as u8,
+            ((hum / 10.) as u32 % 10) as u8,
+            (hum as u32 % 10) as u8,
+        ];
+        tm.print_hex(0, &digits).unwrap();
+    }
+}
+
+#[embassy_executor::task]
+async fn sensor_reader(
+    mut dht22_pin: GpioPin<Output<OpenDrain>, 15>,
+    publisher: Publisher<'static>,
 ) {
     loop {
         let value =
@@ -127,18 +191,23 @@ async fn sensor_reader(
                 }
             };
 
-        let temp = value.temperature();
-        let hum = value.humidity();
-        println!("Temperature: {:2.1}°C", temp);
-        println!("Humidity:    {:2.1}%", hum);
+        publisher.publish(value.into()).await;
 
-        let digits = [
-            ((temp / 10.) as u32 % 10) as u8,
-            (temp as u32 % 10) as u8,
-            ((hum / 10.) as u32 % 10) as u8,
-            (hum as u32 % 10) as u8,
-        ];
-        tm.print_hex(0, &digits).unwrap();
         Timer::after(Duration::from_secs(5)).await;
+    }
+}
+
+#[derive(Clone, Copy)]
+struct SensorReadings {
+    temperature: f32,
+    humidity: f32,
+}
+
+impl From<DhtValue> for SensorReadings {
+    fn from(value: DhtValue) -> Self {
+        Self {
+            temperature: value.temperature(),
+            humidity: value.humidity(),
+        }
     }
 }

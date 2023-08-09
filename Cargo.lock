@@ -718,6 +718,7 @@ dependencies = [
  "dht-hal-drv",
  "embassy-executor",
  "embassy-net",
+ "embassy-sync",
  "embassy-time",
  "embedded-svc",
  "esp-backtrace",
