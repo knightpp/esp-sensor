@@ -34,7 +34,8 @@ pub(crate) fn init<'d>(
     .unwrap();
 
     let (wifi, _) = radio.split();
-    let (wifi_interface, controller) = esp_wifi::wifi::new_with_mode(&init, wifi, WifiMode::Sta);
+    let (wifi_interface, controller) =
+        esp_wifi::wifi::new_with_mode(&init, wifi, WifiMode::Sta).unwrap();
     let config = Config::dhcpv4(Default::default());
 
     let seed = 1234; // very random, very secure seed
