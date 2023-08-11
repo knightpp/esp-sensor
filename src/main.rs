@@ -5,12 +5,10 @@
 
 mod wifi;
 
-use dht_hal_drv::DhtValue;
 use embassy_executor::Executor;
 use embassy_sync::pubsub::WaitResult;
 use embassy_time::{Duration, Timer};
 use esp_backtrace as _;
-use esp_println::println;
 use hal::{
     clock::ClockControl,
     embassy,
@@ -18,7 +16,7 @@ use hal::{
     peripherals::Peripherals,
     prelude::*,
     timer::TimerGroup,
-    Rtc, IO,
+    Delay, Rtc, IO,
 };
 
 macro_rules! singleton {
@@ -67,7 +65,7 @@ pub struct Config {
 
 #[entry]
 fn main() -> ! {
-    esp_println::logger::init_logger(log::LevelFilter::Info);
+    esp_println::logger::init_logger(log::LevelFilter::Trace);
 
     let peripherals = Peripherals::take();
     let mut system = peripherals.DPORT.split();
@@ -93,24 +91,23 @@ fn main() -> ! {
     wdt1.disable();
 
     embassy::init(&clocks, timer_group0.timer0);
-    let (stack, controller) = wifi::init(
-        timer_group1.timer0,
-        peripherals.RNG,
-        peripherals.RADIO,
-        system.radio_clock_control,
-        &clocks,
-    );
+    // let (stack, controller) = wifi::init(
+    //     timer_group1.timer0,
+    //     peripherals.RNG,
+    //     peripherals.RADIO,
+    //     system.radio_clock_control,
+    //     &clocks,
+    // );
 
     let io = IO::new(peripherals.GPIO, peripherals.IO_MUX);
     let dht22_pin = io.pins.gpio15.into_open_drain_output();
+    let delay: Delay = hal::Delay::new(&clocks);
 
     let tm = {
-        let clk = singleton!(io.pins.gpio12.into_open_drain_output());
-        let dio = singleton!(io.pins.gpio13.into_open_drain_output());
-        let delay = singleton!(hal::Delay::new(&clocks));
+        let clk = io.pins.gpio12.into_open_drain_output();
+        let dio = io.pins.gpio13.into_open_drain_output();
 
         let mut tm: tm1637::TM1637<
-            'static,
             GpioPin<Output<OpenDrain>, 12>,
             GpioPin<Output<OpenDrain>, 13>,
             hal::Delay,
@@ -129,7 +126,7 @@ fn main() -> ! {
         // spawner.spawn(wifi::net_task(stack)).unwrap();
 
         spawner
-            .spawn(sensor_reader(dht22_pin, ps.publisher().unwrap()))
+            .spawn(sensor_reader(dht22_pin, delay, ps.publisher().unwrap()))
             .unwrap();
         spawner
             .spawn(display_readings(tm, ps.subscriber().unwrap()))
@@ -140,7 +137,6 @@ fn main() -> ! {
 #[embassy_executor::task]
 async fn display_readings(
     mut tm: tm1637::TM1637<
-        'static,
         GpioPin<Output<OpenDrain>, 12>,
         GpioPin<Output<OpenDrain>, 13>,
         hal::Delay,
@@ -159,8 +155,8 @@ async fn display_readings(
             WaitResult::Message(readings) => readings,
         };
 
-        println!("Temperature: {:2.1}°C", temp);
-        println!("Humidity:    {:2.1}%", hum);
+        log::info!("Temperature: {:2.1}°C", temp);
+        log::info!("Humidity:    {:2.1}%", hum);
 
         let digits = [
             ((temp / 10.) as u32 % 10) as u8,
@@ -175,25 +171,23 @@ async fn display_readings(
 #[embassy_executor::task]
 async fn sensor_reader(
     mut dht22_pin: GpioPin<Output<OpenDrain>, 15>,
+    delay: Delay,
     publisher: Publisher<'static>,
 ) {
     loop {
-        let value =
-            match dht_hal_drv::dht_read(dht_hal_drv::DhtType::DHT22, &mut dht22_pin, &mut |d| {
-                embassy_time::block_for(Duration::from_micros(d as u64));
-                // Timer::after(Duration::from_micros(d as u64));
-            }) {
-                Ok(value) => value,
-                Err(err) => {
-                    println!("Error: {:?}", err);
-                    Timer::after(Duration::from_secs(2)).await;
-                    continue;
-                }
-            };
+        let value = match dht_hal_drv::dht_read(dht_hal_drv::DhtType::DHT22, &mut dht22_pin, delay)
+        {
+            Result::Ok(x) => x,
+            Result::Err(err) => {
+                log::error!("error reading dht sensor: {:?}", err);
+                Timer::after(Duration::from_secs(30)).await;
+                continue;
+            }
+        };
 
         publisher.publish(value.into()).await;
 
-        Timer::after(Duration::from_secs(5)).await;
+        Timer::after(Duration::from_secs(10)).await;
     }
 }
 
@@ -203,8 +197,8 @@ struct SensorReadings {
     humidity: f32,
 }
 
-impl From<DhtValue> for SensorReadings {
-    fn from(value: DhtValue) -> Self {
+impl From<dht_hal_drv::DhtValue> for SensorReadings {
+    fn from(value: dht_hal_drv::DhtValue) -> Self {
         Self {
             temperature: value.temperature(),
             humidity: value.humidity(),
