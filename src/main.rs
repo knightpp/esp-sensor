@@ -211,6 +211,8 @@ async fn sensor_reader(
     delay: Delay,
     publisher: Publisher<'static>,
 ) {
+    Timer::after(Duration::from_secs(2)).await;
+
     loop {
         let value = match dht_hal_drv::dht_read(dht_hal_drv::DhtType::DHT22, &mut dht22_pin, delay)
         {
