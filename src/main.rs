@@ -1,14 +1,21 @@
 #![no_std]
 #![no_main]
 #![feature(type_alias_impl_trait)]
-#![forbid(unsafe_code)]
 
 mod wifi;
 
+use core::convert::Infallible;
 use embassy_executor::Executor;
+use embassy_net::{
+    dns::{self},
+    tcp::{self},
+    Stack,
+};
 use embassy_sync::pubsub::WaitResult;
 use embassy_time::{Duration, Timer};
 use esp_backtrace as _;
+use esp_dht22::{http_compat, line_proto};
+use esp_wifi::wifi::WifiDevice;
 use hal::{
     clock::ClockControl,
     embassy,
@@ -18,6 +25,7 @@ use hal::{
     timer::TimerGroup,
     Delay, Rtc, IO,
 };
+use reqwless::{request::RequestBuilder, response::Status};
 
 macro_rules! singleton {
     ($val:expr) => {{
@@ -29,6 +37,7 @@ macro_rules! singleton {
         x
     }};
 }
+use reqwless::client::HttpClient;
 pub(crate) use singleton;
 
 type PubSubChannel = embassy_sync::pubsub::PubSubChannel<
@@ -61,10 +70,35 @@ pub struct Config {
     ssid: &'static str,
     #[default("<CHANGEME>")]
     password: &'static str,
+    #[default("<CHANGEME>")]
+    addr: &'static str,
+}
+
+#[global_allocator]
+static ALLOCATOR: esp_alloc::EspHeap = esp_alloc::EspHeap::empty();
+
+fn init_heap() {
+    const HEAP_SIZE: usize = 32 * 1024;
+
+    extern "C" {
+        static mut _heap_start: u32;
+        static mut _heap_end: u32;
+    }
+
+    unsafe {
+        let heap_start = &_heap_start as *const _ as usize;
+        let heap_end = &_heap_end as *const _ as usize;
+        assert!(
+            heap_end - heap_start > HEAP_SIZE,
+            "Not enough available heap memory."
+        );
+        ALLOCATOR.init(heap_start as *mut u8, HEAP_SIZE);
+    }
 }
 
 #[entry]
 fn main() -> ! {
+    init_heap();
     esp_println::logger::init_logger(log::LevelFilter::Trace);
 
     let peripherals = Peripherals::take();
@@ -91,13 +125,13 @@ fn main() -> ! {
     wdt1.disable();
 
     embassy::init(&clocks, timer_group0.timer0);
-    // let (stack, controller) = wifi::init(
-    //     timer_group1.timer0,
-    //     peripherals.RNG,
-    //     peripherals.RADIO,
-    //     system.radio_clock_control,
-    //     &clocks,
-    // );
+    let (stack, controller) = wifi::init(
+        timer_group1.timer0,
+        peripherals.RNG,
+        peripherals.RADIO,
+        system.radio_clock_control,
+        &clocks,
+    );
 
     let io = IO::new(peripherals.GPIO, peripherals.IO_MUX);
     let dht22_pin = io.pins.gpio15.into_open_drain_output();
@@ -122,11 +156,14 @@ fn main() -> ! {
 
     let executor: &'static mut Executor = singleton!(Executor::new());
     executor.run(|spawner| {
-        // spawner.spawn(wifi::connection(controller)).unwrap();
-        // spawner.spawn(wifi::net_task(stack)).unwrap();
+        spawner.spawn(wifi::connection(controller)).unwrap();
+        spawner.spawn(wifi::net_task(stack)).unwrap();
 
         spawner
             .spawn(sensor_reader(dht22_pin, delay, ps.publisher().unwrap()))
+            .unwrap();
+        spawner
+            .spawn(sensor_data_sender(stack, ps.subscriber().unwrap()))
             .unwrap();
         spawner
             .spawn(display_readings(tm, ps.subscriber().unwrap()))
@@ -145,8 +182,8 @@ async fn display_readings(
 ) {
     loop {
         let SensorReadings {
-            humidity: hum,
-            temperature: temp,
+            humidity,
+            temperature,
         } = match subscriber.next_message().await {
             WaitResult::Lagged(num) => {
                 log::warn!("Lagged {} messages", num);
@@ -155,14 +192,14 @@ async fn display_readings(
             WaitResult::Message(readings) => readings,
         };
 
-        log::info!("Temperature: {:2.1}°C", temp);
-        log::info!("Humidity:    {:2.1}%", hum);
+        log::info!("Temperature: {:2.1}°C", temperature);
+        log::info!("Humidity:    {:2.1}%", humidity);
 
         let digits = [
-            ((temp / 10.) as u32 % 10) as u8,
-            (temp as u32 % 10) as u8,
-            ((hum / 10.) as u32 % 10) as u8,
-            (hum as u32 % 10) as u8,
+            ((temperature / 10.) as u32 % 10) as u8,
+            (temperature as u32 % 10) as u8,
+            ((humidity / 10.) as u32 % 10) as u8,
+            (humidity as u32 % 10) as u8,
         ];
         tm.print_hex(0, &digits).unwrap();
     }
@@ -188,6 +225,123 @@ async fn sensor_reader(
         publisher.publish(value.into()).await;
 
         Timer::after(Duration::from_secs(10)).await;
+    }
+}
+
+#[embassy_executor::task]
+async fn sensor_data_sender(
+    stack: &'static Stack<WifiDevice<'static>>,
+    mut subscriber: Subscriber<'static>,
+) {
+    loop {
+        let result = sending_loop(stack, &mut subscriber).await;
+        if let Err(err) = result {
+            log::error!("something went wrong: {:?}", err);
+        };
+    }
+}
+
+#[derive(Debug)]
+enum Error {
+    Dns(dns::Error),
+    ConnectTcp(tcp::ConnectError),
+    Tcp(tcp::Error),
+    LineProto(line_proto::Error<Infallible>),
+    Reqwless(reqwless::Error),
+}
+
+impl From<dns::Error> for Error {
+    fn from(value: dns::Error) -> Self {
+        Error::Dns(value)
+    }
+}
+
+impl From<tcp::ConnectError> for Error {
+    fn from(value: tcp::ConnectError) -> Self {
+        Error::ConnectTcp(value)
+    }
+}
+
+impl From<tcp::Error> for Error {
+    fn from(value: tcp::Error) -> Self {
+        Error::Tcp(value)
+    }
+}
+
+impl From<line_proto::Error<Infallible>> for Error {
+    fn from(value: line_proto::Error<Infallible>) -> Self {
+        Error::LineProto(value)
+    }
+}
+
+impl From<reqwless::Error> for Error {
+    fn from(value: reqwless::Error) -> Self {
+        Error::Reqwless(value)
+    }
+}
+
+async fn sending_loop(
+    stack: &'static Stack<WifiDevice<'static>>,
+    subscriber: &mut Subscriber<'static>,
+) -> Result<(), Error> {
+    loop {
+        if stack.is_link_up() {
+            log::info!("Link is up!");
+            break;
+        }
+        Timer::after(Duration::from_millis(500)).await;
+    }
+
+    log::debug!("Waiting to get IP address...");
+    loop {
+        if let Some(config) = stack.config_v4() {
+            log::info!("Got IP: {}", config.address);
+            break;
+        }
+        Timer::after(Duration::from_millis(500)).await;
+    }
+
+    let connector = http_compat::TcpConnect::<WifiDevice<'static>>::new(stack);
+    let dns = http_compat::Dns::new(stack);
+    let mut client = HttpClient::new(&connector, &dns);
+
+    log::debug!("connecting...");
+    let mut resource = client.resource(CONFIG.addr).await?;
+    log::debug!("connected!");
+
+    loop {
+        let value = match subscriber.next_message().await {
+            WaitResult::Lagged(num) => {
+                log::warn!("Lagged {} messages", num);
+                continue;
+            }
+            WaitResult::Message(readings) => readings,
+        };
+
+        let mut body = [0; 1024];
+        let n_left = {
+            let line_buf = line_proto::new(&mut body[..])
+                .measurement("dht22")?
+                .next()?
+                .field("humidity", value.humidity)?
+                .field("temperature", value.temperature)?
+                .next()
+                .build()?;
+            line_buf.len()
+        };
+        let body = &body[..body.len() - n_left];
+        let mut headers = [0; 1024];
+
+        log::debug!("sending http request...");
+        let resp = resource.post("/").body(body).send(&mut headers).await?;
+        log::debug!("received http response: status={:?}", resp.status);
+
+        if !matches!(resp.status, Status::Ok) {
+            log::error!(
+                "non OK response: body={:?}",
+                core::str::from_utf8(resp.body()?.read_to_end().await?).ok()
+            );
+        }
     }
 }
 

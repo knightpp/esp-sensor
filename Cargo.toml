@@ -5,13 +5,15 @@ authors = ["Danylo Kondratiev <knightpp@proton.me>"]
 edition = "2021"
 license = "MIT OR Apache-2.0"
 
+[lib]
+
 [dependencies]
 hal = { package = "esp32-hal", version = "0.14.0", features = [
     "async",
     "embassy",
     "embassy-time-timg0",
 ] }
-embassy-executor = { version = "0.2.0", features = [
+embassy-executor = { version = "0.2.1", features = [
     "arch-xtensa",
     "executor-thread",
     "integrated-timers",
@@ -36,11 +38,11 @@ esp-wifi = { git = "https://github.com/esp-rs/esp-wifi", branch = "main", packag
     "embedded-svc",
     "embassy-net",
 ] }
-embedded-svc = { version = "0.25.0", default-features = false, features = [] }
+embedded-svc = { version = "0.25.3", default-features = false, features = [] }
 embassy-net = { version = "0.1.0", features = [
     "nightly",
     "tcp",
-    "udp",
+    "dns",
     "dhcpv4",
     "medium-ethernet",
 ] }
@@ -51,6 +53,10 @@ tm1637 = { git = "https://github.com/knightpp/tm1637-rs" }
 log = "=0.4.18"
 toml-cfg = "0.1.3"
 dht-hal-drv = { git = "https://github.com/knightpp/dht-hal-drv" }
+reqwless = "0.5.0"
+embedded-nal-async = "=0.4.0"
+esp-alloc = "0.3.0"
+smoltcp = { version = "0.10.0", default-features = false }
 
 [profile.dev.package.esp-wifi]
 opt-level = 3
