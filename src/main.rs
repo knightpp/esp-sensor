@@ -237,6 +237,7 @@ async fn sensor_data_sender(
         let result = sending_loop(stack, &mut subscriber).await;
         if let Err(err) = result {
             log::error!("something went wrong: {:?}", err);
+            Timer::after(Duration::from_secs(10)).await;
         };
     }
 }
@@ -292,7 +293,7 @@ async fn sending_loop(
         Timer::after(Duration::from_millis(500)).await;
     }
 
-    log::debug!("Waiting to get IP address...");
+    log::info!("Waiting to get IP address...");
     loop {
         if let Some(config) = stack.config_v4() {
             log::info!("Got IP: {}", config.address);
@@ -305,9 +306,9 @@ async fn sending_loop(
     let dns = http_compat::Dns::new(stack);
     let mut client = HttpClient::new(&connector, &dns);
 
-    log::debug!("connecting...");
+    log::info!("connecting...");
     let mut resource = client.resource(CONFIG.addr).await?;
-    log::debug!("connected!");
+    log::info!("connected!");
 
     loop {
         let value = match subscriber.next_message().await {
@@ -332,9 +333,9 @@ async fn sending_loop(
         let body = &body[..body.len() - n_left];
         let mut headers = [0; 1024];
 
-        log::debug!("sending http request...");
+        log::info!("sending http request...");
         let resp = resource.post("/").body(body).send(&mut headers).await?;
-        log::debug!("received http response: status={:?}", resp.status);
+        log::info!("received http response: status={:?}", resp.status);
 
         if !matches!(resp.status, Status::Ok) {
             log::error!(
