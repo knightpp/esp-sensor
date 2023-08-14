@@ -14,7 +14,7 @@ use embassy_net::{
 use embassy_sync::pubsub::WaitResult;
 use embassy_time::{Duration, Timer};
 use esp_backtrace as _;
-use esp_dht22::{http_compat, line_proto};
+use esp_sensor::{http_compat, line_proto};
 use esp_wifi::wifi::WifiDevice;
 use hal::{
     clock::ClockControl,

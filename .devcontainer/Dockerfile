@@ -18,7 +18,7 @@ RUN apt-get update \
     && apt-get clean -y && rm -rf /var/lib/apt/lists/* /tmp/library-scripts
 
 # Set users
-RUN adduser --disabled-password --gecos "" ${CONTAINER_USER}
+RUN adduser --uid 1000 --disabled-password --gecos "" ${CONTAINER_USER}
 USER ${CONTAINER_USER}
 WORKDIR /home/${CONTAINER_USER}
 

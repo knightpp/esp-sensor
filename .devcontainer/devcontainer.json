@@ -1,5 +1,5 @@
 {
-    "name": "esp-dht22",
+    "name": "esp-sensor",
     // Select between image and build propieties to pull or build the image.
     // "image": "docker.io/espressif/idf-rust:{{ mcu }}_latest",
     "build": {
@@ -33,6 +33,6 @@
         8000,
         3333
     ],
-    "workspaceMount": "source=${localWorkspaceFolder},target=/home/esp/esp-dht22,type=bind,consistency=cached",
-    "workspaceFolder": "/home/esp/esp-dht22"
+    "workspaceMount": "source=${localWorkspaceFolder},target=/home/esp/esp-sensor,type=bind,consistency=cached",
+    "workspaceFolder": "/home/esp/esp-sensor"
 }

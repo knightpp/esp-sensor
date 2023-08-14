@@ -5,7 +5,7 @@
       "name": "Wokwi GDB",
       "type": "cppdbg",
       "request": "launch",
-      "program": "${workspaceFolder}/target/xtensa-esp32-none-elf/debug/esp_dht22",
+      "program": "${workspaceFolder}/target/xtensa-esp32-none-elf/debug/esp_sensor",
       "cwd": "${workspaceFolder}",
       "MIMode": "gdb",
       "miDebuggerPath": "${userHome}/.espressif/tools/xtensa-esp32-elf/esp-2021r2-patch3-8.4.0/xtensa-esp32-elf/bin/xtensa-esp32-elf-gdb",

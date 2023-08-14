@@ -1,5 +1,5 @@
 [package]
-name = "esp_dht22"
+name = "esp_sensor"
 version = "0.1.0"
 authors = ["Danylo Kondratiev <knightpp@proton.me>"]
 edition = "2021"
