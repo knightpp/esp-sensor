@@ -14,7 +14,7 @@ use embassy_net::{
 use embassy_sync::pubsub::WaitResult;
 use embassy_time::{Duration, Timer};
 use esp_backtrace as _;
-use esp_sensor::{http_compat, line_proto};
+use esp_sensor::{http_compat, influx, line_proto};
 use esp_wifi::wifi::WifiDevice;
 use hal::{
     clock::ClockControl,
@@ -72,6 +72,12 @@ pub struct Config {
     password: &'static str,
     #[default("<CHANGEME>")]
     addr: &'static str,
+    #[default("<CHANGEME>")]
+    influx_token: &'static str,
+    #[default("<CHANGEME>")]
+    influx_org: &'static str,
+    #[default("<CHANGEME>")]
+    influx_bucket: &'static str,
 }
 
 #[global_allocator]
@@ -255,31 +261,31 @@ enum Error {
 
 impl From<dns::Error> for Error {
     fn from(value: dns::Error) -> Self {
-        Error::Dns(value)
+        Self::Dns(value)
     }
 }
 
 impl From<tcp::ConnectError> for Error {
     fn from(value: tcp::ConnectError) -> Self {
-        Error::ConnectTcp(value)
+        Self::ConnectTcp(value)
     }
 }
 
 impl From<tcp::Error> for Error {
     fn from(value: tcp::Error) -> Self {
-        Error::Tcp(value)
+        Self::Tcp(value)
     }
 }
 
 impl From<line_proto::Error<Infallible>> for Error {
     fn from(value: line_proto::Error<Infallible>) -> Self {
-        Error::LineProto(value)
+        Self::LineProto(value)
     }
 }
 
 impl From<reqwless::Error> for Error {
     fn from(value: reqwless::Error) -> Self {
-        Error::Reqwless(value)
+        Self::Reqwless(value)
     }
 }
 
@@ -309,7 +315,8 @@ async fn sending_loop(
     let mut client = HttpClient::new(&connector, &dns);
 
     log::info!("connecting...");
-    let mut resource = client.resource(CONFIG.addr).await?;
+    let resource = client.resource(CONFIG.addr).await?;
+    let mut client = influx::Client::new(resource, CONFIG.influx_token);
     log::info!("connected!");
 
     loop {
@@ -333,17 +340,15 @@ async fn sending_loop(
             line_buf.len()
         };
         let body = &body[..body.len() - n_left];
-        let mut headers = [0; 1024];
 
         log::info!("sending http request...");
-        let resp = resource.post("/").body(body).send(&mut headers).await?;
-        log::info!("received http response: status={:?}", resp.status);
+        let result = client
+            .write(CONFIG.influx_org, CONFIG.influx_bucket, body)
+            .await;
+        log::info!("received http response: {:?}", result);
 
-        if !matches!(resp.status, Status::Ok) {
-            log::error!(
-                "non OK response: body={:?}",
-                core::str::from_utf8(resp.body()?.read_to_end().await?).ok()
-            );
+        if result.is_err() {
+            log::error!("influxdb API request failed");
         }
     }
 }
