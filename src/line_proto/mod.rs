@@ -22,6 +22,9 @@ pub mod state {
 pub enum Error<E> {
     FmtError(WriteFmtError<E>),
     Error(E),
+    StartWithUnderScore,
+    ContainsNewLine,
+    ContainsQuotes,
 }
 
 impl<E> From<E> for Error<E> {
@@ -52,6 +55,7 @@ where
         mut self,
         measurement: &str,
     ) -> Result<LineBuilder<state::Tag, W, E>, Error<E>> {
+        validate_str(measurement)?;
         self.w.write(measurement.as_bytes())?;
         Ok(LineBuilder {
             w: self.w,
@@ -66,6 +70,9 @@ where
     W: Write<Error = E>,
 {
     pub fn tag(mut self, name: &str, value: &str) -> Result<Self, Error<E>> {
+        validate_str(name)?;
+        validate_str(value)?;
+
         self.w.write_fmt(format_args!(",{name}={value}"))?;
         self.needs_comma = false;
         Ok(self)
@@ -89,6 +96,7 @@ where
     W: Write<Error = E>,
 {
     pub fn field(mut self, name: &str, value: f32) -> Result<Self, Error<E>> {
+        validate_str(name)?;
         if self.needs_comma {
             self.w.write_all(b",")?;
         }
@@ -97,6 +105,7 @@ where
         Ok(self)
     }
 
+    #[allow(clippy::missing_const_for_fn)]
     pub fn next(self) -> LineBuilder<state::Timestamp, W, E> {
         LineBuilder {
             w: self.w,
@@ -120,6 +129,20 @@ where
         self.w.flush()?;
         Ok(self.w)
     }
+}
+
+fn validate_str<E>(s: &str) -> Result<(), Error<E>> {
+    if s.starts_with('_') {
+        return Err(Error::StartWithUnderScore);
+    }
+    if s.contains('\n') {
+        return Err(Error::ContainsNewLine);
+    }
+    if s.contains('"') {
+        return Err(Error::ContainsQuotes);
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]
