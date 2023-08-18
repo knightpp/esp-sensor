@@ -2,17 +2,14 @@
 #![no_main]
 #![feature(type_alias_impl_trait)]
 
+mod error;
 mod wifi;
 
-use core::convert::Infallible;
 use embassy_executor::Executor;
-use embassy_net::{
-    dns::{self},
-    tcp::{self},
-    Stack,
-};
+use embassy_net::Stack;
 use embassy_sync::pubsub::WaitResult;
 use embassy_time::{Duration, Timer};
+use error::Error;
 use esp_backtrace as _;
 use esp_sensor::{http_compat, influx, line_proto};
 use esp_wifi::wifi::WifiDevice;
@@ -25,7 +22,6 @@ use hal::{
     timer::TimerGroup,
     Delay, Rtc, IO,
 };
-use reqwless::{request::RequestBuilder, response::Status};
 
 macro_rules! singleton {
     ($val:expr) => {{
@@ -64,6 +60,7 @@ type Subscriber<'s> = embassy_sync::pubsub::Subscriber<
     4,
 >;
 
+#[derive(Debug)]
 #[toml_cfg::toml_config]
 pub struct Config {
     #[default("<CHANGEME>")]
@@ -160,6 +157,8 @@ fn main() -> ! {
 
     let ps: &'static PubSubChannel = &*singleton!(PubSubChannel::new());
 
+    log::info!("using {:?}", CONFIG);
+
     let executor: &'static mut Executor = singleton!(Executor::new());
     executor.run(|spawner| {
         spawner.spawn(wifi::connection(controller)).unwrap();
@@ -207,7 +206,9 @@ async fn display_readings(
             ((humidity / 10.) as u32 % 10) as u8,
             (humidity as u32 % 10) as u8,
         ];
-        tm.print_hex(0, &digits).unwrap();
+        if let Err(err) = tm.print_hex(0, &digits) {
+            log::error!("could not print hex on tm1637: {:?}", err);
+        }
     }
 }
 
@@ -232,7 +233,7 @@ async fn sensor_reader(
 
         publisher.publish(value.into()).await;
 
-        Timer::after(Duration::from_secs(10)).await;
+        Timer::after(Duration::from_secs(30)).await;
     }
 }
 
@@ -244,48 +245,9 @@ async fn sensor_data_sender(
     loop {
         let result = sending_loop(stack, &mut subscriber).await;
         if let Err(err) = result {
-            log::error!("something went wrong: {:?}", err);
+            log::error!("something went wrong while sending sensor data: {:?}", err);
             Timer::after(Duration::from_secs(10)).await;
         };
-    }
-}
-
-#[derive(Debug)]
-enum Error {
-    Dns(dns::Error),
-    ConnectTcp(tcp::ConnectError),
-    Tcp(tcp::Error),
-    LineProto(line_proto::Error<Infallible>),
-    Reqwless(reqwless::Error),
-}
-
-impl From<dns::Error> for Error {
-    fn from(value: dns::Error) -> Self {
-        Self::Dns(value)
-    }
-}
-
-impl From<tcp::ConnectError> for Error {
-    fn from(value: tcp::ConnectError) -> Self {
-        Self::ConnectTcp(value)
-    }
-}
-
-impl From<tcp::Error> for Error {
-    fn from(value: tcp::Error) -> Self {
-        Self::Tcp(value)
-    }
-}
-
-impl From<line_proto::Error<Infallible>> for Error {
-    fn from(value: line_proto::Error<Infallible>) -> Self {
-        Self::LineProto(value)
-    }
-}
-
-impl From<reqwless::Error> for Error {
-    fn from(value: reqwless::Error) -> Self {
-        Self::Reqwless(value)
     }
 }
 
@@ -330,22 +292,23 @@ async fn sending_loop(
 
         let mut body = [0; 1024];
         let n_left = {
-            let line_buf = line_proto::new(&mut body[..])
+            let unwritten_part = line_proto::new(&mut body[..])
                 .measurement("dht22")?
                 .next()?
                 .field("humidity", value.humidity)?
                 .field("temperature", value.temperature)?
                 .next()
                 .build()?;
-            line_buf.len()
+            unwritten_part.len()
         };
         let body = &body[..body.len() - n_left];
+        log::debug!("http request body is\n{:?}", core::str::from_utf8(body));
 
-        log::info!("sending http request...");
+        log::debug!("sending http request...");
         let result = client
             .write(CONFIG.influx_org, CONFIG.influx_bucket, body)
             .await;
-        log::info!("received http response: {:?}", result);
+        log::debug!("received http response: {:?}", result);
 
         if result.is_err() {
             log::error!("influxdb API request failed");

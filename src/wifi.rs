@@ -68,17 +68,17 @@ pub(crate) async fn connection(mut controller: WifiController<'static>) {
                 ..Default::default()
             });
             controller.set_configuration(&client_config).unwrap();
-            log::info!("Starting wifi");
+            log::info!("starting wifi...");
             controller.start().await.unwrap();
-            log::info!("Wifi started!");
+            log::info!("wifi started!");
         }
-        log::debug!("About to connect...");
 
+        log::debug!("about to connect...");
         match controller.connect().await {
-            Ok(_) => log::info!("Wifi connected!"),
+            Ok(_) => log::info!("wifi connected!"),
             Err(e) => {
-                log::error!("Failed to connect to wifi: {e:?}");
-                Timer::after(Duration::from_millis(5000)).await
+                log::error!("failed to connect to wifi: {e:?}");
+                Timer::after(Duration::from_secs(5)).await
             }
         }
     }
