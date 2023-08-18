@@ -158,6 +158,7 @@ fn main() -> ! {
     let ps: &'static PubSubChannel = &*singleton!(PubSubChannel::new());
 
     log::info!("using {:?}", CONFIG);
+    log::info!("mac address {:X?}", stack.ethernet_address());
 
     let executor: &'static mut Executor = singleton!(Executor::new());
     executor.run(|spawner| {
