@@ -8,10 +8,10 @@ use esp_wifi::{
     EspWifiInitFor,
 };
 use hal::{
+    self,
     clock::Clocks,
     peripherals::{self, TIMG1},
     radio::RadioExt,
-    rng::Rng as HalRng,
     system::RadioClockControl,
     timer::Timer0,
     Timer as HalTimer,
@@ -27,7 +27,7 @@ pub(crate) fn init<'d>(
     let init = initialize(
         EspWifiInitFor::Wifi,
         timer0,
-        HalRng::new(rng),
+        hal::Rng::new(rng),
         radio_clock_control,
         clocks,
     )

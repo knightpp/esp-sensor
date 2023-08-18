@@ -39,25 +39,25 @@ pub(crate) use singleton;
 type PubSubChannel = embassy_sync::pubsub::PubSubChannel<
     embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex,
     SensorReadings,
+    2,
+    2,
     1,
-    4,
-    4,
 >;
 type Publisher<'p> = embassy_sync::pubsub::Publisher<
     'p,
     embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex,
     SensorReadings,
+    2,
+    2,
     1,
-    4,
-    4,
 >;
 type Subscriber<'s> = embassy_sync::pubsub::Subscriber<
     's,
     embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex,
     SensorReadings,
+    2,
+    2,
     1,
-    4,
-    4,
 >;
 
 #[derive(Debug)]
@@ -81,7 +81,7 @@ pub struct Config {
 static ALLOCATOR: esp_alloc::EspHeap = esp_alloc::EspHeap::empty();
 
 fn init_heap() {
-    const HEAP_SIZE: usize = 32 * 1024;
+    const HEAP_SIZE: usize = 8 * 1024;
 
     extern "C" {
         static mut _heap_start: u32;
