@@ -271,17 +271,17 @@ async fn sending_loop(
 ) -> Result<(), Error> {
     loop {
         if stack.is_link_up() {
-            log::info!("Link is up!");
+            log::info!("sending_loop: link is up!");
             break;
         }
         log::trace!("sending_loop: going to sleep for 500 ms...");
         Timer::after(Duration::from_millis(500)).await;
     }
 
-    log::info!("Waiting to get IP address...");
+    log::info!("sending_loop: waiting to get IP address...");
     loop {
         if let Some(config) = stack.config_v4() {
-            log::info!("Got IP: {}", config.address);
+            log::info!("sending_loop: got IP={}", config.address);
             break;
         }
         log::trace!("sending_loop: going to sleep for 500 ms...");
@@ -292,16 +292,16 @@ async fn sending_loop(
     let dns = http_compat::Dns::new(stack);
     let mut client = HttpClient::new(&connector, &dns);
 
-    log::info!("connecting...");
+    log::info!("sending_loop: connecting...");
     let resource = client.resource(CONFIG.addr).await?;
     let mut client = influx::Client::new(resource, CONFIG.influx_token);
-    log::info!("connected!");
+    log::info!("sending_loop: connected!");
 
     loop {
         log::trace!("sending_loop: receiving next message...");
         let value = match subscriber.next_message().await {
             WaitResult::Lagged(num) => {
-                log::warn!("Lagged {} messages", num);
+                log::warn!("sending_loop: lagged {} messages", num);
                 continue;
             }
             WaitResult::Message(readings) => readings,
@@ -319,16 +319,19 @@ async fn sending_loop(
             unwritten_part.len()
         };
         let body = &body[..body.len() - n_left];
-        log::debug!("http request body is\n{:?}", core::str::from_utf8(body));
+        log::debug!(
+            "sending_loop: http request body is\n{:?}",
+            core::str::from_utf8(body)
+        );
 
-        log::debug!("sending http request...");
+        log::debug!("sending_loop: sending http request...");
         let result = client
             .write(CONFIG.influx_org, CONFIG.influx_bucket, body)
             .await;
-        log::debug!("received http response: {:?}", result);
+        log::debug!("sending_loop: received http response: {:?}", result);
 
         if result.is_err() {
-            log::error!("influxdb API request failed");
+            log::error!("sending_loop: influxdb API request failed");
         }
     }
 }

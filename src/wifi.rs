@@ -53,13 +53,17 @@ pub(crate) fn init<'d>(
 
 #[embassy_executor::task]
 pub(crate) async fn connection(mut controller: WifiController<'static>) {
-    log::info!("start connection task");
-    log::info!("Device capabilities: {:?}", controller.get_capabilities());
+    log::info!("connection: start connection task");
+    log::info!(
+        "connection: device capabilities={:?}",
+        controller.get_capabilities()
+    );
     loop {
         if let WifiState::StaConnected = esp_wifi::wifi::get_wifi_state() {
             // wait until we're no longer connected
             controller.wait_for_event(WifiEvent::StaDisconnected).await;
-            Timer::after(Duration::from_millis(5000)).await
+            log::trace!("connection: sleeping for 5s...");
+            Timer::after(Duration::from_secs(5)).await
         }
         if !matches!(controller.is_started(), Ok(true)) {
             let client_config = Configuration::Client(ClientConfiguration {
@@ -68,9 +72,9 @@ pub(crate) async fn connection(mut controller: WifiController<'static>) {
                 ..Default::default()
             });
             controller.set_configuration(&client_config).unwrap();
-            log::info!("starting wifi...");
+            log::trace!("starting wifi...");
             controller.start().await.unwrap();
-            log::info!("wifi started!");
+            log::trace!("wifi started!");
         }
 
         log::debug!("about to connect...");
@@ -78,6 +82,7 @@ pub(crate) async fn connection(mut controller: WifiController<'static>) {
             Ok(_) => log::info!("wifi connected!"),
             Err(e) => {
                 log::error!("failed to connect to wifi: {e:?}");
+                log::trace!("connection: sleeping for 5s...");
                 Timer::after(Duration::from_secs(5)).await
             }
         }
