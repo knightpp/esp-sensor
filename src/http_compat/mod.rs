@@ -1,5 +1,5 @@
 use alloc::boxed::Box;
-use core::ops::DerefMut;
+use core::cell::RefCell;
 use embassy_net::{driver::Driver, tcp::TcpSocket, Stack};
 
 #[derive(Debug)]
@@ -31,11 +31,19 @@ impl From<embassy_net::tcp::ConnectError> for ConnectorError {
 
 pub struct TcpConnect<'s, D: Driver> {
     stack: &'s Stack<D>,
+    borrowed: RefCell<bool>,
+    rx_buffer: Box<[u8; 1500]>,
+    tx_buffer: Box<[u8; 1500]>,
 }
 
 impl<'s, D: Driver> TcpConnect<'s, D> {
-    pub const fn new(stack: &'s Stack<D>) -> Self {
-        Self { stack }
+    pub fn new(stack: &'s Stack<D>) -> Self {
+        Self {
+            stack,
+            borrowed: RefCell::new(false),
+            rx_buffer: Box::new([0; 1500]),
+            tx_buffer: Box::new([0; 1500]),
+        }
     }
 }
 
@@ -51,7 +59,16 @@ impl<'s, D: Driver> embedded_nal_async::TcpConnect for TcpConnect<'s, D> {
     where
         Self: 'a,
     {
-        let mut conn = Self::Connection::new(self.stack);
+        assert!(!(*self.borrowed.borrow()), "borrowed second time");
+
+        *self.borrowed.borrow_mut() = true;
+
+        let mut_self = unsafe { core::mem::transmute_copy::<&'a Self, &'a mut Self>(&self) };
+        let mut conn = Self::Connection::new(
+            self.stack,
+            &mut *mut_self.rx_buffer,
+            &mut *mut_self.tx_buffer,
+        );
         conn.connect(remote).await?;
         Ok(conn)
     }
@@ -60,29 +77,18 @@ impl<'s, D: Driver> embedded_nal_async::TcpConnect for TcpConnect<'s, D> {
 pub struct TcpSocketBuffers<'a, const N: usize> {
     // TODO: futures cannot be sent between threads because this is not send
     inner: Option<TcpSocket<'a>>,
-    // buffers should be after inner field to guarantee drop ordering
-    rx_buffer: Box<[u8; N]>,
-    tx_buffer: Box<[u8; N]>,
 }
 
 impl<'a, const N: usize> TcpSocketBuffers<'a, N> {
-    fn new<D: Driver>(stack: &'a Stack<D>) -> Self {
-        let mut this = Self {
-            inner: None,
-            rx_buffer: Box::new([0; N]),
-            tx_buffer: Box::new([0; N]),
-        };
+    fn new<D: Driver>(
+        stack: &'a Stack<D>,
+        rx_buffer: &'a mut [u8],
+        tx_buffer: &'a mut [u8],
+    ) -> Self {
+        let mut this = Self { inner: None };
 
         // TODO: verify correctness
-        let mut socket = TcpSocket::new(
-            stack,
-            unsafe {
-                core::mem::transmute::<&mut [u8], &'a mut [u8]>(&mut this.rx_buffer.deref_mut()[..])
-            },
-            unsafe {
-                core::mem::transmute::<&mut [u8], &'a mut [u8]>(&mut this.tx_buffer.deref_mut()[..])
-            },
-        );
+        let mut socket = TcpSocket::new(stack, rx_buffer, tx_buffer);
         socket.set_timeout(Some(embassy_time::Duration::from_secs(10)));
 
         this.inner = Some(socket);
