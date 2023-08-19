@@ -56,16 +56,15 @@ fn read_sensor<P: gpio::InputPin + gpio::OutputPin>(
     thread::sleep(Duration::from_secs(3));
 
     loop {
-        let value =
-            match dht_hal_drv::dht_read(dht_hal_drv::DhtType::DHT22, &mut pin, delay::FreeRtos) {
-                Result::Ok(x) => x,
-                Result::Err(err) => {
-                    log::error!("read_sensor: reading dht sensor error={:?}", err);
-                    log::trace!("read_sensor: going to sleep for 10s...");
-                    thread::sleep(Duration::from_secs(10));
-                    continue;
-                }
-            };
+        let value = match dht_hal_drv::dht_read(dht_hal_drv::DhtType::DHT22, &mut pin, delay::Ets) {
+            Result::Ok(x) => x,
+            Result::Err(err) => {
+                log::error!("read_sensor: reading dht sensor error={:?}", err);
+                log::trace!("read_sensor: going to sleep for 10s...");
+                thread::sleep(Duration::from_secs(10));
+                continue;
+            }
+        };
 
         let value: SensorData = value.into();
         log::info!("read_sensor: data={}", value);
