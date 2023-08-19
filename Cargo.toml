@@ -5,8 +5,6 @@ authors = ["Danylo Kondratiev <knightpp@proton.me>"]
 edition = "2021"
 license = "MIT OR Apache-2.0"
 
-[lib]
-
 [dependencies]
 hal = { package = "esp32-hal", version = "0.14.0", features = [
     "async",

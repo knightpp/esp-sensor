@@ -227,16 +227,16 @@ async fn sensor_reader(
     delay: Delay,
     publisher: Publisher<'static>,
 ) {
-    log::trace!("sensor_reader: going to sleep for 2 secs...");
-    Timer::after(Duration::from_secs(2)).await;
+    log::trace!("sensor_reader: going to sleep for 5s...");
+    Timer::after(Duration::from_secs(5)).await;
 
     loop {
         let value = match dht_hal_drv::dht_read(dht_hal_drv::DhtType::DHT22, &mut dht22_pin, delay)
         {
             Result::Ok(x) => x,
             Result::Err(err) => {
-                log::error!("sensor_reader: error reading dht sensor: {:?}", err);
-                log::trace!("sensor_reader: going to sleep for 30 secs...");
+                log::error!("sensor_reader: reading dht sensor error={:?}", err);
+                log::trace!("sensor_reader: going to sleep for 30s...");
                 Timer::after(Duration::from_secs(30)).await;
                 continue;
             }
@@ -245,7 +245,7 @@ async fn sensor_reader(
         log::trace!("sensor_reader: publishing sensor data {:?}...", value);
         publisher.publish(value.into()).await;
 
-        log::trace!("sensor_reader: going to sleep for 30 secs...");
+        log::trace!("sensor_reader: going to sleep for 30s...");
         Timer::after(Duration::from_secs(30)).await;
     }
 }
@@ -258,11 +258,8 @@ async fn data_sender(
     loop {
         let result = sending_loop(stack, &mut subscriber).await;
         if let Err(err) = result {
-            log::error!(
-                "data_sender: something went wrong while sending sensor data: {:?}",
-                err
-            );
-            log::trace!("data_sender: going to sleep for 10 secs...");
+            log::error!("data_sender: sending sensor data error={:?}", err);
+            log::trace!("data_sender: going to sleep for 10s...");
             Timer::after(Duration::from_secs(10)).await;
         };
     }

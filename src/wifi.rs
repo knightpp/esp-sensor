@@ -17,6 +17,7 @@ use hal::{
     Timer as HalTimer,
 };
 
+#[inline(always)]
 pub(crate) fn init<'d>(
     timer0: HalTimer<Timer0<TIMG1>>,
     rng: peripherals::RNG,
@@ -24,10 +25,12 @@ pub(crate) fn init<'d>(
     radio_clock_control: RadioClockControl,
     clocks: &Clocks,
 ) -> (&'static mut Stack<WifiDevice<'d>>, WifiController<'d>) {
+    let mut rng = hal::Rng::new(rng);
+    let seed = rng.random();
     let init = initialize(
         EspWifiInitFor::Wifi,
         timer0,
-        hal::Rng::new(rng),
+        rng,
         radio_clock_control,
         clocks,
     )
@@ -38,13 +41,13 @@ pub(crate) fn init<'d>(
         esp_wifi::wifi::new_with_mode(&init, wifi, WifiMode::Sta).unwrap();
     let config = Config::dhcpv4(Default::default());
 
-    let seed = 1234; // very random, very secure seed
+    log::debug!("wifi::init: seed={}", seed);
+    let seed = seed as u64;
 
-    // Init network stack
     let stack = singleton!(Stack::new(
         wifi_interface,
         config,
-        singleton!(StackResources::<3>::new()),
+        singleton!(StackResources::<2>::new()),
         seed
     ));
 
@@ -65,25 +68,41 @@ pub(crate) async fn connection(mut controller: WifiController<'static>) {
             log::trace!("connection: sleeping for 5s...");
             Timer::after(Duration::from_secs(5)).await
         }
-        if !matches!(controller.is_started(), Ok(true)) {
-            let client_config = Configuration::Client(ClientConfiguration {
-                ssid: super::CONFIG.ssid.into(),
-                password: super::CONFIG.password.into(),
-                ..Default::default()
-            });
-            controller.set_configuration(&client_config).unwrap();
-            log::trace!("starting wifi...");
-            controller.start().await.unwrap();
-            log::trace!("wifi started!");
-        }
+
+        match controller.is_started() {
+            Ok(false) => {
+                let client_config = Configuration::Client(ClientConfiguration {
+                    ssid: super::CONFIG.ssid.into(),
+                    password: super::CONFIG.password.into(),
+                    ..Default::default()
+                });
+                controller.set_configuration(&client_config).unwrap();
+                log::trace!("starting wifi...");
+                controller.start().await.unwrap();
+                log::trace!("wifi started!");
+            }
+            Ok(true) => {
+                log::trace!("connection: stopping wifi...");
+                if let Err(err) = controller.stop().await {
+                    log::error!("connection: failed to stop wifi error={:?}", err);
+                }
+                continue;
+            }
+            Err(err) => {
+                log::error!(
+                    "connection: failed to check if wifi is started error={:?}",
+                    err
+                );
+            }
+        };
 
         log::debug!("about to connect...");
         match controller.connect().await {
             Ok(_) => log::info!("wifi connected!"),
             Err(e) => {
-                log::error!("failed to connect to wifi: {e:?}");
-                log::trace!("connection: sleeping for 5s...");
-                Timer::after(Duration::from_secs(5)).await
+                log::error!("failed to connect to wifi error={e:?}");
+                log::trace!("connection: sleeping for 10s...");
+                Timer::after(Duration::from_secs(10)).await
             }
         }
     }
