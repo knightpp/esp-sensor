@@ -143,12 +143,12 @@ fn main() -> ! {
     let delay: Delay = hal::Delay::new(&clocks);
 
     let tm = {
-        let clk = io.pins.gpio12.into_open_drain_output();
-        let dio = io.pins.gpio13.into_open_drain_output();
+        let clk = io.pins.gpio32.into_open_drain_output();
+        let dio = io.pins.gpio33.into_open_drain_output();
 
         let mut tm: tm1637::TM1637<
-            GpioPin<Output<OpenDrain>, 12>,
-            GpioPin<Output<OpenDrain>, 13>,
+            GpioPin<Output<OpenDrain>, 32>,
+            GpioPin<Output<OpenDrain>, 33>,
             hal::Delay,
         > = tm1637::TM1637::new(clk, dio, delay);
         log::trace!("init tm1637...");
@@ -185,8 +185,8 @@ fn main() -> ! {
 #[embassy_executor::task]
 async fn display_readings(
     mut tm: tm1637::TM1637<
-        GpioPin<Output<OpenDrain>, 12>,
-        GpioPin<Output<OpenDrain>, 13>,
+        GpioPin<Output<OpenDrain>, 32>,
+        GpioPin<Output<OpenDrain>, 33>,
         hal::Delay,
     >,
     mut subscriber: Subscriber<'static>,
@@ -204,8 +204,8 @@ async fn display_readings(
             WaitResult::Message(readings) => readings,
         };
 
-        log::info!("temperature: {:2.1}°C", temperature);
-        log::info!("humidity:    {:2.1}%", humidity);
+        log::info!("display_readings: temperature: {:2.1}°C", temperature);
+        log::info!("display_readings: humidity:    {:2.1}%", humidity);
 
         let digits = [
             ((temperature / 10.) as u32 % 10) as u8,
@@ -235,7 +235,7 @@ async fn sensor_reader(
         {
             Result::Ok(x) => x,
             Result::Err(err) => {
-                log::error!("error reading dht sensor: {:?}", err);
+                log::error!("sensor_reader: error reading dht sensor: {:?}", err);
                 log::trace!("sensor_reader: going to sleep for 30 secs...");
                 Timer::after(Duration::from_secs(30)).await;
                 continue;
@@ -258,7 +258,10 @@ async fn data_sender(
     loop {
         let result = sending_loop(stack, &mut subscriber).await;
         if let Err(err) = result {
-            log::error!("something went wrong while sending sensor data: {:?}", err);
+            log::error!(
+                "data_sender: something went wrong while sending sensor data: {:?}",
+                err
+            );
             log::trace!("data_sender: going to sleep for 10 secs...");
             Timer::after(Duration::from_secs(10)).await;
         };
@@ -274,8 +277,8 @@ async fn sending_loop(
             log::info!("sending_loop: link is up!");
             break;
         }
-        log::trace!("sending_loop: going to sleep for 500 ms...");
-        Timer::after(Duration::from_millis(500)).await;
+        log::trace!("sending_loop: going to sleep for 3s...");
+        Timer::after(Duration::from_secs(3)).await;
     }
 
     log::info!("sending_loop: waiting to get IP address...");
@@ -284,8 +287,8 @@ async fn sending_loop(
             log::info!("sending_loop: got IP={}", config.address);
             break;
         }
-        log::trace!("sending_loop: going to sleep for 500 ms...");
-        Timer::after(Duration::from_millis(500)).await;
+        log::trace!("sending_loop: going to sleep for 3s...");
+        Timer::after(Duration::from_secs(3)).await;
     }
 
     let connector = http_compat::TcpConnect::<WifiDevice<'static>>::new(stack);
