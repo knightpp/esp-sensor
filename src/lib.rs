@@ -4,8 +4,6 @@
 #![warn(clippy::all, clippy::pedantic, clippy::nursery, clippy::pedantic)]
 #![allow(clippy::missing_errors_doc)]
 
-extern crate alloc;
-
-pub mod http_compat;
-pub mod influx;
-pub mod line_proto;
+// pub mod http_compat;
+// pub mod influx;
+// pub mod line_proto;
