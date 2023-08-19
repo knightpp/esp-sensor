@@ -192,7 +192,7 @@ async fn display_readings(
     mut subscriber: Subscriber<'static>,
 ) {
     loop {
-        log::trace!(target: "display_readings", "receiving next message...");
+        log::trace!("display_readings: receiving next message...");
         let SensorReadings {
             humidity,
             temperature,
@@ -204,8 +204,8 @@ async fn display_readings(
             WaitResult::Message(readings) => readings,
         };
 
-        log::info!("Temperature: {:2.1}°C", temperature);
-        log::info!("Humidity:    {:2.1}%", humidity);
+        log::info!("temperature: {:2.1}°C", temperature);
+        log::info!("humidity:    {:2.1}%", humidity);
 
         let digits = [
             ((temperature / 10.) as u32 % 10) as u8,
@@ -214,7 +214,7 @@ async fn display_readings(
             (humidity as u32 % 10) as u8,
         ];
 
-        log::trace!(target: "display_readings", "displaying data on tm1637...");
+        log::trace!("display_readings: displaying data on tm1637...");
         if let Err(err) = tm.print_hex(0, &digits) {
             log::error!("could not print hex on tm1637: {:?}", err);
         }
@@ -227,7 +227,7 @@ async fn sensor_reader(
     delay: Delay,
     publisher: Publisher<'static>,
 ) {
-    log::trace!(target: "sensor_reader", "going to sleep for 2 secs...");
+    log::trace!("sensor_reader: going to sleep for 2 secs...");
     Timer::after(Duration::from_secs(2)).await;
 
     loop {
@@ -236,16 +236,16 @@ async fn sensor_reader(
             Result::Ok(x) => x,
             Result::Err(err) => {
                 log::error!("error reading dht sensor: {:?}", err);
-                log::trace!(target: "sensor_reader", "going to sleep for 30 secs...");
+                log::trace!("sensor_reader: going to sleep for 30 secs...");
                 Timer::after(Duration::from_secs(30)).await;
                 continue;
             }
         };
 
-        log::trace!(target: "sensor_reader", "publishing sensor data {:?}...", value);
+        log::trace!("sensor_reader: publishing sensor data {:?}...", value);
         publisher.publish(value.into()).await;
 
-        log::trace!(target: "sensor_reader", "going to sleep for 30 secs...");
+        log::trace!("sensor_reader: going to sleep for 30 secs...");
         Timer::after(Duration::from_secs(30)).await;
     }
 }
@@ -259,7 +259,7 @@ async fn data_sender(
         let result = sending_loop(stack, &mut subscriber).await;
         if let Err(err) = result {
             log::error!("something went wrong while sending sensor data: {:?}", err);
-            log::trace!(target: "data_sender", "going to sleep for 10 secs...");
+            log::trace!("data_sender: going to sleep for 10 secs...");
             Timer::after(Duration::from_secs(10)).await;
         };
     }
@@ -274,7 +274,7 @@ async fn sending_loop(
             log::info!("Link is up!");
             break;
         }
-        log::trace!(target: "sending_loop", "going to sleep for 500 ms...");
+        log::trace!("sending_loop: going to sleep for 500 ms...");
         Timer::after(Duration::from_millis(500)).await;
     }
 
@@ -284,7 +284,7 @@ async fn sending_loop(
             log::info!("Got IP: {}", config.address);
             break;
         }
-        log::trace!(target: "sending_loop", "going to sleep for 500 ms...");
+        log::trace!("sending_loop: going to sleep for 500 ms...");
         Timer::after(Duration::from_millis(500)).await;
     }
 
@@ -298,7 +298,7 @@ async fn sending_loop(
     log::info!("connected!");
 
     loop {
-        log::trace!(target: "sending_loop", "receiving next message...");
+        log::trace!("sending_loop: receiving next message...");
         let value = match subscriber.next_message().await {
             WaitResult::Lagged(num) => {
                 log::warn!("Lagged {} messages", num);

@@ -109,7 +109,10 @@ impl<'a, const N: usize> TcpSocketBuffers<'a, N> {
             }
         };
         let remote = smoltcp::wire::IpEndpoint::new(address, port);
-        self.inner.as_mut().unwrap().connect(remote).await
+        log::trace!("connecting to {}...", remote);
+        self.inner.as_mut().unwrap().connect(remote).await?;
+        log::trace!("connected!");
+        Ok(())
     }
 }
 
@@ -158,7 +161,7 @@ impl<'s, D: Driver + 'static> embedded_nal_async::Dns for Dns<'s, D> {
 
         log::trace!("querying dns host={} addr_type={:?}", host, addr_type);
         let result = self.stack.dns_query(host, qtype).await?;
-        log::trace!("querying dns complete");
+        log::trace!("querying dns complete address={:?}", result.first());
 
         let address = result.first().ok_or(Self::Error::Failed)?;
 
