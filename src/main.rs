@@ -127,7 +127,9 @@ fn main() -> ! {
     wdt0.disable();
     wdt1.disable();
 
+    log::trace!("embassy init...");
     embassy::init(&clocks, timer_group0.timer0);
+    log::trace!("wifi init...");
     let (stack, controller) = wifi::init(
         timer_group1.timer0,
         peripherals.RNG,
@@ -149,8 +151,11 @@ fn main() -> ! {
             GpioPin<Output<OpenDrain>, 13>,
             hal::Delay,
         > = tm1637::TM1637::new(clk, dio, delay);
+        log::trace!("init tm1637...");
         tm.init().unwrap();
+        log::trace!("clear tm1637...");
         tm.clear().unwrap();
+        log::trace!("set brightness tm1637...");
         tm.set_brightness(128).unwrap();
         tm
     };
