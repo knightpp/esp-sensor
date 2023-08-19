@@ -6,6 +6,7 @@ use embassy_net::{driver::Driver, tcp::TcpSocket, Stack};
 pub enum ConnectorError {
     Tcp(embassy_net::tcp::Error),
     TcpConnect(embassy_net::tcp::ConnectError),
+    None,
 }
 
 impl embedded_svc::io::Error for ConnectorError {
@@ -13,6 +14,7 @@ impl embedded_svc::io::Error for ConnectorError {
         match self {
             Self::Tcp(err) => err.kind(),
             Self::TcpConnect(err) => err.kind(),
+            Self::None => embedded_svc::io::ErrorKind::Other,
         }
     }
 }
@@ -98,7 +100,7 @@ impl<'a, const N: usize> TcpSocketBuffers<'a, N> {
     async fn connect(
         &mut self,
         remote: embedded_nal_async::SocketAddr,
-    ) -> Result<(), embassy_net::tcp::ConnectError> {
+    ) -> Result<(), ConnectorError> {
         let (address, port) = {
             match remote {
                 embedded_nal_async::SocketAddr::V4(v4) => (
@@ -110,7 +112,11 @@ impl<'a, const N: usize> TcpSocketBuffers<'a, N> {
         };
         let remote = smoltcp::wire::IpEndpoint::new(address, port);
         log::trace!("connecting to {}...", remote);
-        self.inner.as_mut().unwrap().connect(remote).await?;
+        self.inner
+            .as_mut()
+            .ok_or(ConnectorError::None)?
+            .connect(remote)
+            .await?;
         log::trace!("connected!");
         Ok(())
     }
@@ -122,14 +128,24 @@ impl<'a, const N: usize> embedded_svc::io::Io for TcpSocketBuffers<'a, N> {
 
 impl<'a, const N: usize> embedded_svc::io::asynch::Write for TcpSocketBuffers<'a, N> {
     async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
-        let n = self.inner.as_mut().unwrap().write(buf).await?;
+        let n = self
+            .inner
+            .as_mut()
+            .ok_or(ConnectorError::None)?
+            .write(buf)
+            .await?;
         Ok(n)
     }
 }
 
 impl<'a, const N: usize> embedded_svc::io::asynch::Read for TcpSocketBuffers<'a, N> {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
-        let n = self.inner.as_mut().unwrap().read(buf).await?;
+        let n = self
+            .inner
+            .as_mut()
+            .ok_or(ConnectorError::None)?
+            .read(buf)
+            .await?;
         Ok(n)
     }
 }
