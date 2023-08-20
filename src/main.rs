@@ -175,7 +175,7 @@ fn read_sensor<P: gpio::InputPin + gpio::OutputPin>(
     bus: &mut Bus<SensorData>,
     mut pin: PinDriver<'_, P, gpio::InputOutput>,
 ) {
-    thread::sleep(Duration::from_secs(3));
+    thread::sleep(Duration::from_secs(10));
 
     loop {
         let value = match dht_hal_drv::dht_read(dht_hal_drv::DhtType::DHT22, &mut pin, delay::Ets) {
