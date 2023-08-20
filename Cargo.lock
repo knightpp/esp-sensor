@@ -682,6 +682,7 @@ dependencies = [
 name = "esp_sensor"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "bus",
  "dht-hal-drv",
  "embedded-svc",
