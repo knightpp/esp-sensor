@@ -274,6 +274,9 @@ fn wifi(
     log::info!("Scanning...");
 
     let ap_infos = wifi.scan()?;
+    for ap in &ap_infos {
+        log::info!("found ap {:?}", ap);
+    }
 
     let ours = ap_infos.into_iter().find(|a| a.ssid == ssid);
 
