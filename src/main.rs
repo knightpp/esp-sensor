@@ -14,7 +14,8 @@ use esp_idf_hal::{
 };
 use esp_idf_svc::{
     eventloop::EspSystemEventLoop, http::client::Configuration as HttpConfiguration,
-    http::client::EspHttpConnection, wifi::BlockingWifi, wifi::EspWifi,
+    http::client::EspHttpConnection, nvs::EspDefaultNvsPartition, wifi::BlockingWifi,
+    wifi::EspWifi,
 };
 use esp_idf_sys as _; // If using the `binstart` feature of `esp-idf-sys`, always keep this module imported
 use std::{convert::Infallible, fmt::Display, thread, time::Duration};
@@ -38,44 +39,46 @@ pub struct Config {
     read_sensor_interval_secs: u32,
 }
 
-fn main() {
+fn main() -> anyhow::Result<()> {
     // It is necessary to call this function once. Otherwise some patches to the runtime
     // implemented by esp-idf-sys might not link properly. See https://github.com/esp-rs/esp-idf-template/issues/71
     esp_idf_sys::link_patches();
     // Bind the log crate to the ESP Logging facilities
     esp_idf_svc::log::EspLogger::initialize_default();
     let logger = esp_idf_svc::log::EspLogger;
-    logger
-        .set_target_level("esp_sensor", log::LevelFilter::Trace)
-        .unwrap();
+    logger.set_target_level("esp_sensor", log::LevelFilter::Trace)?;
 
     log::info!("using {:?}", CONFIG);
     let mut bus = bus::Bus::<SensorData>::new(4);
     let sub1 = bus.add_rx();
     let sub2 = bus.add_rx();
 
-    let sysloop = EspSystemEventLoop::take().unwrap();
-    let mut peripherals = Peripherals::take().unwrap();
+    let sysloop = EspSystemEventLoop::take()?;
+    let nvs = EspDefaultNvsPartition::take()?;
+    let mut peripherals = Peripherals::take().context("no peripherals")?;
 
-    let dht22_pin = PinDriver::input_output(peripherals.pins.gpio15).unwrap();
-    let display_clk = PinDriver::input_output(peripherals.pins.gpio32).unwrap();
-    let display_dio = PinDriver::input_output(peripherals.pins.gpio33).unwrap();
+    let dht22_pin = PinDriver::input_output(peripherals.pins.gpio15)?;
+    let display_clk = PinDriver::input_output(peripherals.pins.gpio32)?;
+    let display_dio = PinDriver::input_output(peripherals.pins.gpio33)?;
 
     thread::scope(|s| {
         s.spawn(|| read_sensor(&mut bus, dht22_pin));
         s.spawn(|| display_sensor_data(sub1, display_clk, display_dio));
-        s.spawn(|| data_sender(sub2, &mut peripherals.modem, &sysloop));
+        s.spawn(|| data_sender(sub2, &mut peripherals.modem, &sysloop, Some(nvs)));
     });
+
+    Ok(())
 }
 
 fn data_sender(
     mut sub: bus::BusReader<SensorData>,
     modem: &mut impl peripheral::Peripheral<P = esp_idf_hal::modem::Modem>,
     sysloop: &EspSystemEventLoop,
+    nvs: Option<EspDefaultNvsPartition>,
 ) {
     loop {
-        if let Err(err) = data_sender_inner(&mut sub, modem, sysloop) {
-            log::error!("could not send sensor data error={}", err);
+        if let Err(err) = data_sender_inner(&mut sub, modem, sysloop, nvs.clone()) {
+            log::error!("could not send sensor data error={:?}", err);
         }
 
         thread::sleep(Duration::from_secs(30));
@@ -86,8 +89,9 @@ fn data_sender_inner(
     sub: &mut bus::BusReader<SensorData>,
     modem: &mut impl peripheral::Peripheral<P = esp_idf_hal::modem::Modem>,
     sysloop: &EspSystemEventLoop,
+    nvs: Option<EspDefaultNvsPartition>,
 ) -> anyhow::Result<Infallible> {
-    let _wifi = wifi(modem, sysloop.clone()).context("connect to wi-fi")?;
+    let _wifi = wifi(modem, sysloop.clone(), nvs).context("connect to wi-fi")?;
     log::info!("Connected to Wi-Fi network!");
 
     let http_connection = EspHttpConnection::new(&HttpConfiguration::default())?;
@@ -246,8 +250,9 @@ impl From<dht_hal_drv::DhtValue> for SensorData {
 fn wifi(
     modem: &'_ mut impl peripheral::Peripheral<P = esp_idf_hal::modem::Modem>,
     sysloop: EspSystemEventLoop,
+    nvs: Option<EspDefaultNvsPartition>,
 ) -> anyhow::Result<Box<EspWifi<'_>>> {
-    let auth_method = AuthMethod::WPA3Personal;
+    let auth_method = AuthMethod::WPA2WPA3Personal;
     let ssid = CONFIG.ssid;
     let pass = CONFIG.password;
     if ssid.is_empty() {
@@ -257,7 +262,7 @@ fn wifi(
         bail!("Missing WiFi password")
     }
 
-    let mut esp_wifi = EspWifi::new(modem, sysloop.clone(), None)?;
+    let mut esp_wifi = EspWifi::new(modem, sysloop.clone(), nvs)?;
     let mut wifi = BlockingWifi::wrap(&mut esp_wifi, sysloop)?;
 
     wifi.set_configuration(&Configuration::Client(ClientConfiguration::default()))?;
@@ -274,9 +279,10 @@ fn wifi(
 
     let channel = if let Some(ours) = ours {
         log::info!(
-            "Found configured access point {} on channel {}",
+            "Found configured access point {} on channel {} with signal strength {}",
             ssid,
-            ours.channel
+            ours.channel,
+            ours.signal_strength,
         );
         Some(ours.channel)
     } else {
