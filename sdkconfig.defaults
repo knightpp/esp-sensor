@@ -9,5 +9,5 @@ CONFIG_ESP_MAIN_TASK_STACK_SIZE=7000
 #CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=n
 #CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_DEFAULT_FULL=n
 
-# Default is 3072 https://docs.espressif.com/projects/esp-idf/en/latest/esp32s2/api-reference/kconfig.html#config-pthread-task-stack-size-default
+# Default is 3072 https://docs.espressif.com/projects/esp-idf/en/v5.1/esp32/api-reference/kconfig.html#config-pthread-task-stack-size-default
 CONFIG_PTHREAD_TASK_STACK_SIZE_DEFAULT=7000
