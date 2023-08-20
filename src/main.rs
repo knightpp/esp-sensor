@@ -44,6 +44,10 @@ fn main() {
     esp_idf_sys::link_patches();
     // Bind the log crate to the ESP Logging facilities
     esp_idf_svc::log::EspLogger::initialize_default();
+    let logger = esp_idf_svc::log::EspLogger;
+    logger
+        .set_target_level("esp_sensor", log::LevelFilter::Trace)
+        .unwrap();
 
     log::info!("using {:?}", CONFIG);
     let mut bus = bus::Bus::<SensorData>::new(4);
