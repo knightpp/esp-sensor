@@ -3,5 +3,5 @@
     "rust-analyzer.diagnostics.disabled": [
         "unresolved-proc-macro"
     ],
-    "rust-analyzer.cargo.target": "xtensa-esp32-none-elf",
+    "rust-analyzer.cargo.target": "xtensa-esp32-espidf",
 }
