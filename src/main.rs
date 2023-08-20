@@ -4,7 +4,7 @@ use anyhow::{bail, Context};
 use bus::Bus;
 use embedded_svc::{
     http::client::Client,
-    wifi::{AuthMethod, ClientConfiguration, Configuration},
+    wifi::{ClientConfiguration, Configuration},
 };
 use esp_idf_hal::{
     delay::{self},
@@ -127,19 +127,25 @@ fn data_sender_inner(
         if (200..300).contains(&status) {
             log::trace!("http post success!");
         } else {
-            let mut buf = {
+            let mut body = {
                 response
                     .header("Content-Length")
                     .map_or_else(Vec::<u8>::new, |len| {
+                        log::warn!("Content-Length header is {:?}", len);
                         Vec::<u8>::with_capacity(len.parse().ok().unwrap_or(0))
                     })
             };
+            let mut buf = [0u8; 512];
 
             loop {
                 match response.read(&mut buf) {
                     Ok(n) => {
                         if n == 0 {
                             break;
+                        }
+
+                        for b in &buf[..n] {
+                            body.push(*b);
                         }
                     }
                     Err(err) => {
@@ -149,11 +155,16 @@ fn data_sender_inner(
                 }
             }
 
-            if let Ok(body) = std::str::from_utf8(&buf) {
-                log::error!("non 2XX http response body={body}")
+            log::error!(
+                "http status code={} status={:?}",
+                status,
+                response.status_message()
+            );
+            if let Ok(body) = std::str::from_utf8(&body) {
+                log::error!("body={:?}", body);
             } else {
-                log::error!("non 2XX http response")
-            };
+                log::error!("body={:?}", body);
+            }
         }
     }
 
@@ -252,7 +263,6 @@ fn wifi(
     sysloop: EspSystemEventLoop,
     nvs: Option<EspDefaultNvsPartition>,
 ) -> anyhow::Result<Box<EspWifi<'_>>> {
-    let auth_method = AuthMethod::WPA2WPA3Personal;
     let ssid = CONFIG.ssid;
     let pass = CONFIG.password;
     if ssid.is_empty() {
@@ -300,7 +310,6 @@ fn wifi(
         ssid: ssid.into(),
         password: pass.into(),
         channel,
-        auth_method,
         ..Default::default()
     }))?;
 
