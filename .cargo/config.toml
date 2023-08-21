@@ -1,5 +1,5 @@
 [build]
-target = "xtensa-esp32-espidf"
+target = "riscv32imc-esp-espidf"
 
 [target.xtensa-esp32-espidf]
 linker = "ldproxy"
@@ -9,6 +9,10 @@ rustflags = [
   "--cfg",
   "espidf_time64",
 ] # Extending time_t for ESP IDF 5: https://github.com/esp-rs/rust/issues/110
+
+[target.riscv32imc-esp-espidf]
+linker = "ldproxy"
+rustflags = ["--cfg", "espidf_time64", "-C", "default-linker-libraries"]
 
 [unstable]
 build-std = ["std", "panic_abort"]

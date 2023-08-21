@@ -57,9 +57,9 @@ fn main() -> anyhow::Result<()> {
     let nvs = EspDefaultNvsPartition::take()?;
     let mut peripherals = Peripherals::take().context("no peripherals")?;
 
-    let dht22_pin = PinDriver::input_output(peripherals.pins.gpio15)?;
-    let display_clk = PinDriver::input_output(peripherals.pins.gpio32)?;
-    let display_dio = PinDriver::input_output(peripherals.pins.gpio33)?;
+    let dht22_pin = PinDriver::input_output(peripherals.pins.gpio3)?;
+    let display_clk = PinDriver::input_output(peripherals.pins.gpio1)?;
+    let display_dio = PinDriver::input_output(peripherals.pins.gpio10)?;
 
     thread::scope(|s| {
         s.spawn(|| read_sensor(&mut bus, dht22_pin));
@@ -101,16 +101,15 @@ fn data_sender_inner(
         CONFIG.addr, CONFIG.influx_org, CONFIG.influx_bucket
     );
 
+    let token = format!("Token {}", CONFIG.influx_token);
     for data in sub.iter() {
+        let headers = [
+            ("Authorization", token.as_str()),
+            ("Accept", "application/json"),
+            ("Content-Type", "text/plain"),
+        ];
         let mut request = client
-            .post(
-                &addr,
-                &[
-                    ("Authorization", CONFIG.influx_token),
-                    ("Accept", "application/json"),
-                    ("Content-Type", "text/plain"),
-                ],
-            )
+            .post(&addr, &headers)
             .context("create post request")?;
 
         line_proto::new(&mut request)
@@ -135,7 +134,7 @@ fn data_sender_inner(
                         Vec::<u8>::with_capacity(len.parse().ok().unwrap_or(0))
                     })
             };
-            let mut buf = [0u8; 512];
+            let mut buf = [0u8; 128];
 
             loop {
                 match response.read(&mut buf) {
@@ -209,11 +208,17 @@ fn display_sensor_data<'d, PCLK, PDIO>(
 
     let mut tm = tm1637::TM1637::new(clk, dio, delay::Ets);
     log::trace!("init tm1637...");
-    tm.init().unwrap();
+    if let Err(err) = tm.init() {
+        log::error!("could not init tm1637 error={:?}", err);
+    }
     log::trace!("clear tm1637...");
-    tm.clear().unwrap();
+    if let Err(err) = tm.clear() {
+        log::error!("could not clear tm1637 error={:?}", err);
+    }
     log::trace!("set brightness tm1637...");
-    tm.set_brightness(128).unwrap();
+    if let Err(err) = tm.set_brightness(128) {
+        log::error!("could not set brightness tm1637 error={:?}", err);
+    }
 
     for SensorData {
         temperature,
