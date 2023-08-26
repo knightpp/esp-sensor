@@ -11,3 +11,7 @@ CONFIG_ESP_MAIN_TASK_STACK_SIZE=7000
 
 # Default is 3072 https://docs.espressif.com/projects/esp-idf/en/v5.1/esp32/api-reference/kconfig.html#config-pthread-task-stack-size-default
 CONFIG_PTHREAD_TASK_STACK_SIZE_DEFAULT=7000
+
+CONFIG_LOG_DEFAULT_LEVEL_WARN=y
+CONFIG_LOG_MAXIMUM_LEVEL_VERBOSE=y
+CONFIG_LOG_COLORS=y
