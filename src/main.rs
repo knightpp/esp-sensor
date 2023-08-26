@@ -151,7 +151,7 @@ fn do_request(
         ("authorization", token),
         ("accept", "application/json"),
         ("content-type", "text/plain"),
-        ("connection", "close"),
+        ("connection", "keep-alive"),
         ("content-length", &*content_length_header),
     ];
 
