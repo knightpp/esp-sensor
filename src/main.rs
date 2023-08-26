@@ -96,8 +96,11 @@ fn data_sender_inner(
     let _wifi = wifi(modem, sysloop.clone(), nvs).context("connect to wi-fi")?;
     log::info!("Connected to Wi-Fi network!");
 
-    let http_connection = EspHttpConnection::new(&HttpConfiguration::default())
-        .context("create esp http connection")?;
+    let http_connection = EspHttpConnection::new(&HttpConfiguration {
+        timeout: Some(Duration::from_secs(120)),
+        ..Default::default()
+    })
+    .context("create esp http connection")?;
     let mut client = Client::wrap(http_connection);
     let addr = format!(
         "{}/api/v2/write?org={}&bucket={}&precision=ns",
@@ -146,6 +149,7 @@ fn do_request(
         ],
     )
     .context("write line proto to body")?;
+    body.shrink_to_fit();
     let content_length_header = format!("{}", body.len());
     let headers = [
         ("authorization", token),
