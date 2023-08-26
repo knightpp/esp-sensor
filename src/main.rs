@@ -3,7 +3,9 @@ mod line_proto;
 use anyhow::{bail, Context};
 use bus::Bus;
 use embedded_svc::{
-    http::client::Client,
+    http::client::{Client, Response},
+    io::Write,
+    utils::io,
     wifi::{ClientConfiguration, Configuration},
 };
 use esp_idf_hal::{
@@ -94,80 +96,98 @@ fn data_sender_inner(
     let _wifi = wifi(modem, sysloop.clone(), nvs).context("connect to wi-fi")?;
     log::info!("Connected to Wi-Fi network!");
 
-    let http_connection = EspHttpConnection::new(&HttpConfiguration::default())?;
+    let http_connection = EspHttpConnection::new(&HttpConfiguration::default())
+        .context("create esp http connection")?;
     let mut client = Client::wrap(http_connection);
     let addr = format!(
         "{}/api/v2/write?org={}&bucket={}&precision=ns",
         CONFIG.addr, CONFIG.influx_org, CONFIG.influx_bucket
     );
 
+    log::info!("http API addr={}", addr);
+
     let token = format!("Token {}", CONFIG.influx_token);
     for data in sub.iter() {
-        let headers = [
-            ("Authorization", token.as_str()),
-            ("Accept", "application/json"),
-            ("Content-Type", "text/plain"),
-        ];
-        let mut request = client
-            .post(&addr, &headers)
-            .context("create post request")?;
-
-        line_proto::new(&mut request)
-            .measurement("dht22")?
-            .next()?
-            .field("humidity", data.humidity)?
-            .field("temperature", data.temperature)?
-            .next()
-            .build()?;
-
-        log::trace!("doing http post request...");
-        let mut response = request.submit().context("do post request")?;
-        let status = response.status();
-        if (200..300).contains(&status) {
-            log::trace!("http post success!");
-        } else {
-            let mut body = {
-                response
-                    .header("Content-Length")
-                    .map_or_else(Vec::<u8>::new, |len| {
-                        log::warn!("Content-Length header is {:?}", len);
-                        Vec::<u8>::with_capacity(len.parse().ok().unwrap_or(0))
-                    })
-            };
-            let mut buf = [0u8; 128];
-
-            loop {
-                match response.read(&mut buf) {
-                    Ok(n) => {
-                        if n == 0 {
-                            break;
-                        }
-
-                        for b in &buf[..n] {
-                            body.push(*b);
-                        }
-                    }
-                    Err(err) => {
-                        log::error!("failed to read http response error={}", err);
-                        break;
-                    }
-                }
-            }
-
-            log::error!(
-                "http status code={} status={:?}",
-                status,
-                response.status_message()
-            );
-            if let Ok(body) = std::str::from_utf8(&body) {
-                log::error!("body={:?}", body);
-            } else {
-                log::error!("body={:?}", body);
-            }
-        }
+        do_request(&mut client, &addr, &token, data)?;
     }
 
     bail!("subscription drained")
+}
+
+fn handle_response(response: Response<&mut EspHttpConnection>) -> Result<(), anyhow::Error> {
+    let status = response.status();
+    if (200..300).contains(&status) {
+        log::trace!("http post success!");
+    } else {
+        log::error!(
+            "http status code={} status={:?}",
+            status,
+            response.status_message()
+        );
+    }
+    read_body(response)?;
+    Ok(())
+}
+
+fn do_request(
+    client: &mut Client<EspHttpConnection>,
+    addr: &str,
+    token: &str,
+    data: SensorData,
+) -> Result<(), anyhow::Error> {
+    let mut body = Vec::new();
+    line_proto::write(
+        &mut body,
+        "dht22",
+        &[],
+        &[
+            ("humidity", data.humidity),
+            ("temperature", data.temperature),
+        ],
+    )
+    .context("write line proto to body")?;
+    let content_length_header = format!("{}", body.len());
+    let headers = [
+        ("authorization", token),
+        ("accept", "application/json"),
+        ("content-type", "text/plain"),
+        ("connection", "close"),
+        ("content-length", &*content_length_header),
+    ];
+
+    let mut request = client.post(addr, &headers).context("create post request")?;
+    request.write_all(&body)?;
+    request.flush()?;
+
+    log::trace!("doing http post request...");
+    let response = request.submit().context("do post request")?;
+    handle_response(response)?;
+
+    Ok(())
+}
+
+fn read_body(mut response: Response<&mut EspHttpConnection>) -> anyhow::Result<()> {
+    let mut buf = [0u8; 128];
+    let (_, mut body) = response.split();
+    let bytes_read = io::try_read_full(&mut body, &mut buf[..]).map_err(|e| e.0)?;
+
+    log::debug!("read {} bytes", bytes_read);
+    if bytes_read == 0 {
+        return Ok(());
+    }
+
+    match std::str::from_utf8(&buf[0..bytes_read]) {
+        Ok(body_string) => log::info!(
+            "Response body (truncated to {} bytes): {:?}",
+            buf.len(),
+            body_string
+        ),
+        Err(e) => log::error!("Error decoding response body: {:?}", e),
+    };
+
+    while body.read(&mut buf)? > 0 {}
+
+    Ok(())
 }
 
 fn read_sensor<P: gpio::InputPin + gpio::OutputPin>(
@@ -175,6 +195,8 @@ fn read_sensor<P: gpio::InputPin + gpio::OutputPin>(
     mut pin: PinDriver<'_, P, gpio::InputOutput>,
 ) {
     thread::sleep(Duration::from_secs(10));
+    dht_hal_drv::dht_read(dht_hal_drv::DhtType::DHT22, &mut pin, delay::Ets).ok();
+    thread::sleep(Duration::from_millis(500));
 
     loop {
         let value = match dht_hal_drv::dht_read(dht_hal_drv::DhtType::DHT22, &mut pin, delay::Ets) {
