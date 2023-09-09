@@ -60,3 +60,4 @@ toml-cfg = "0.1"
 dht-hal-drv = { git = "https://github.com/knightpp/dht-hal-drv" }
 bus = "2.4"
 anyhow = "1.0"
+influxdb-line-protocol = "1.0"

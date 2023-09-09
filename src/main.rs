@@ -138,17 +138,13 @@ fn do_request(
     token: &str,
     data: SensorData,
 ) -> Result<(), anyhow::Error> {
-    let mut body = Vec::new();
-    line_proto::write(
-        &mut body,
-        "dht22",
-        &[],
-        &[
-            ("humidity", data.humidity),
-            ("temperature", data.temperature),
-        ],
-    )
-    .context("write line proto to body")?;
+    let mut body = influxdb_line_protocol::builder::LineProtocolBuilder::new()
+        .measurement("living room #1")
+        .tag("sensor", "dht22")
+        .field("humidity", data.humidity as f64)
+        .field("temperature", data.temperature as f64)
+        .close_line()
+        .build();
     body.shrink_to_fit();
     let content_length_header = format!("{}", body.len());
     let headers = [
