@@ -210,8 +210,13 @@ fn read_sensor<P: gpio::InputPin + gpio::OutputPin>(
         };
 
         let value: SensorData = value.into();
-        log::info!("read_sensor: data={}", value);
-        bus.broadcast(value);
+        if value.is_correct() {
+            log::info!("read_sensor: data={}", value);
+            bus.broadcast(value);
+        } else {
+            log::error!("read_sensor: got invalid data={}", value);
+        }
+
         let interval = CONFIG.read_sensor_interval_secs;
         log::trace!("read_sensor: sleeping for {}s...", interval);
         thread::sleep(Duration::from_secs(u64::from(interval)));
@@ -265,6 +270,15 @@ fn display_sensor_data<'d, PCLK, PDIO>(
 struct SensorData {
     temperature: f32,
     humidity: f32,
+}
+
+impl SensorData {
+    fn is_correct(&self) -> bool {
+        let humidity_correct = self.humidity > 0.0 && self.humidity < 100.0;
+        let temperature_correct = self.temperature >= -40.0 && self.temperature <= 80.0;
+
+        humidity_correct && temperature_correct
+    }
 }
 
 impl Display for SensorData {
