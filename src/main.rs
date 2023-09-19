@@ -1,5 +1,3 @@
-mod line_proto;
-
 use anyhow::{bail, Context};
 use bus::Bus;
 use embedded_svc::{
