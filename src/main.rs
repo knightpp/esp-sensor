@@ -50,7 +50,6 @@ fn main() -> anyhow::Result<()> {
 
     log::info!("using {:?}", CONFIG);
     let mut bus = bus::Bus::<SensorData>::new(4);
-    let sub1 = bus.add_rx();
     let sub2 = bus.add_rx();
 
     let sysloop = EspSystemEventLoop::take()?;
@@ -58,13 +57,20 @@ fn main() -> anyhow::Result<()> {
     let mut peripherals = Peripherals::take().context("no peripherals")?;
 
     let dht22_pin = PinDriver::input_output(peripherals.pins.gpio3)?;
-    let display_clk = PinDriver::input_output(peripherals.pins.gpio1)?;
-    let display_dio = PinDriver::input_output(peripherals.pins.gpio10)?;
+
+    #[cfg(feature = "display")]
+    let display_task = {
+        let sub1 = bus.add_rx();
+        let display_clk = PinDriver::input_output(peripherals.pins.gpio1)?;
+        let display_dio = PinDriver::input_output(peripherals.pins.gpio10)?;
+        || display_sensor_data(sub1, display_clk, display_dio)
+    };
 
     thread::scope(|s| {
         s.spawn(|| read_sensor(&mut bus, dht22_pin));
-        s.spawn(|| display_sensor_data(sub1, display_clk, display_dio));
         s.spawn(|| data_sender(sub2, &mut peripherals.modem, &sysloop, Some(nvs)));
+        #[cfg(feature = "display")]
+        s.spawn(display_task);
     });
 
     Ok(())
@@ -221,6 +227,7 @@ fn read_sensor<P: gpio::InputPin + gpio::OutputPin>(
     }
 }
 
+#[cfg(feature = "display")]
 fn display_sensor_data<'d, PCLK, PDIO>(
     mut sub: bus::BusReader<SensorData>,
     clk: PinDriver<'d, PCLK, gpio::InputOutput>,

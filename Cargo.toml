@@ -19,6 +19,7 @@ lto = "off"
 [features]
 
 default = ["std", "hal", "esp-idf-sys/native"]
+display = ["dep:tm1637"]
 
 pio = ["esp-idf-sys/pio"]
 all = ["std", "nightly", "experimental", "embassy"]
@@ -55,7 +56,7 @@ esp-idf-hal = { version = "0.41", optional = true, default-features = false }
 esp-idf-svc = { version = "0.46", optional = true, default-features = false }
 embedded-svc = { version = "0.25", optional = true, default-features = false }
 
-tm1637 = { git = "https://github.com/knightpp/tm1637-rs" }
+tm1637 = { git = "https://github.com/knightpp/tm1637-rs", optional = true}
 toml-cfg = "0.1"
 dht-hal-drv = { git = "https://github.com/knightpp/dht-hal-drv" }
 bus = "2.4"
