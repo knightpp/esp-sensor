@@ -43,5 +43,8 @@
     8000
   ],
   "workspaceMount": "source=${localWorkspaceFolder},target=/home/esp/esp_sensor,type=bind,consistency=cached",
-  "workspaceFolder": "/home/esp/esp_sensor"
+  "workspaceFolder": "/home/esp/esp_sensor",
+  "runArgs": [
+    "--userns=keep-id"
+  ]
 }

@@ -1,5 +1,3 @@
-mod line_proto;
-
 use anyhow::{bail, Context};
 use bus::Bus;
 use embedded_svc::{
@@ -52,7 +50,6 @@ fn main() -> anyhow::Result<()> {
 
     log::info!("using {:?}", CONFIG);
     let mut bus = bus::Bus::<SensorData>::new(4);
-    let sub1 = bus.add_rx();
     let sub2 = bus.add_rx();
 
     let sysloop = EspSystemEventLoop::take()?;
@@ -60,13 +57,20 @@ fn main() -> anyhow::Result<()> {
     let mut peripherals = Peripherals::take().context("no peripherals")?;
 
     let dht22_pin = PinDriver::input_output(peripherals.pins.gpio3)?;
-    let display_clk = PinDriver::input_output(peripherals.pins.gpio1)?;
-    let display_dio = PinDriver::input_output(peripherals.pins.gpio10)?;
+
+    #[cfg(feature = "display")]
+    let display_task = {
+        let sub1 = bus.add_rx();
+        let display_clk = PinDriver::input_output(peripherals.pins.gpio1)?;
+        let display_dio = PinDriver::input_output(peripherals.pins.gpio10)?;
+        || display_sensor_data(sub1, display_clk, display_dio)
+    };
 
     thread::scope(|s| {
         s.spawn(|| read_sensor(&mut bus, dht22_pin));
-        s.spawn(|| display_sensor_data(sub1, display_clk, display_dio));
         s.spawn(|| data_sender(sub2, &mut peripherals.modem, &sysloop, Some(nvs)));
+        #[cfg(feature = "display")]
+        s.spawn(display_task);
     });
 
     Ok(())
@@ -138,17 +142,13 @@ fn do_request(
     token: &str,
     data: SensorData,
 ) -> Result<(), anyhow::Error> {
-    let mut body = Vec::new();
-    line_proto::write(
-        &mut body,
-        "dht22",
-        &[],
-        &[
-            ("humidity", data.humidity),
-            ("temperature", data.temperature),
-        ],
-    )
-    .context("write line proto to body")?;
+    let mut body = influxdb_line_protocol::builder::LineProtocolBuilder::new()
+        .measurement("living room #1")
+        .tag("sensor", "dht22")
+        .field("humidity", data.humidity as f64)
+        .field("temperature", data.temperature as f64)
+        .close_line()
+        .build();
     body.shrink_to_fit();
     let content_length_header = format!("{}", body.len());
     let headers = [
@@ -214,14 +214,20 @@ fn read_sensor<P: gpio::InputPin + gpio::OutputPin>(
         };
 
         let value: SensorData = value.into();
-        log::info!("read_sensor: data={}", value);
-        bus.broadcast(value);
+        if value.is_correct() {
+            log::info!("read_sensor: data={}", value);
+            bus.broadcast(value);
+        } else {
+            log::error!("read_sensor: got invalid data={}", value);
+        }
+
         let interval = CONFIG.read_sensor_interval_secs;
         log::trace!("read_sensor: sleeping for {}s...", interval);
         thread::sleep(Duration::from_secs(u64::from(interval)));
     }
 }
 
+#[cfg(feature = "display")]
 fn display_sensor_data<'d, PCLK, PDIO>(
     mut sub: bus::BusReader<SensorData>,
     clk: PinDriver<'d, PCLK, gpio::InputOutput>,
@@ -269,6 +275,15 @@ fn display_sensor_data<'d, PCLK, PDIO>(
 struct SensorData {
     temperature: f32,
     humidity: f32,
+}
+
+impl SensorData {
+    fn is_correct(&self) -> bool {
+        let humidity_correct = self.humidity > 0.0 && self.humidity < 100.0;
+        let temperature_correct = self.temperature >= -40.0 && self.temperature <= 80.0;
+
+        humidity_correct && temperature_correct
+    }
 }
 
 impl Display for SensorData {
